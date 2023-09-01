@@ -1,8 +1,13 @@
 ```
+❯ git remote -v                                                         
+origin  https://github.com/TakeshiAkehi/FAST_LIO.git (fetch)
+origin  https://github.com/TakeshiAkehi/FAST_LIO.git (push)
+upstream        https://github.com/hku-mars/FAST_LIO.git (fetch)
+upstream        https://github.com/hku-mars/FAST_LIO.git (push)
+```
+
+```
 git branch -a
 git fetch upstream
 git merge upstream/main
 ```
-
-upstream = hku-mars/FAST_LIO
-origin = TakeshiAkehi/FAST_LIO
