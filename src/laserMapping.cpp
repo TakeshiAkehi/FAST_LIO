@@ -583,9 +583,12 @@ void set_posestamp(T & out)
 template<typename T>
 void set_velocity(T & out)
 {
-    out.x = state_point.vel(0);
-    out.y = state_point.vel(1);
-    out.z = state_point.vel(2);
+    tf::Transform glo2body(tf::Quaternion(-geoQuat.x,-geoQuat.y,-geoQuat.z,geoQuat.w));
+    tf::Vector3 vel_glo(state_point.vel(0),state_point.vel(1),state_point.vel(2));
+    tf::Vector3 vel_body = glo2body * vel_glo;
+    out.x = vel_body.getX();
+    out.y = vel_body.getY();
+    out.z = vel_body.getZ();
 }
 
 
