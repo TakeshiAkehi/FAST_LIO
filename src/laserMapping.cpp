@@ -901,7 +901,7 @@ int main(int argc, char** argv)
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
-                lio_status.status = "No point, skip this scan";
+                lio_status.status = "No point. skip this scan";
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
                 ROS_WARN("No point, skip this scan!\n");
@@ -948,7 +948,7 @@ int main(int argc, char** argv)
             /*** ICP and iterated Kalman filter update ***/
             if (feats_down_size < 5)
             {
-                lio_status.status = "No feats, skip this scan";
+                lio_status.status = "No feats. skip this scan";
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
                 ROS_WARN("No point, skip this scan!\n");
