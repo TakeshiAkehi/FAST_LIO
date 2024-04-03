@@ -73,6 +73,7 @@ include_directories(
 add_message_files(
   FILES
   Pose6D.msg
+  Status.msg
 )
 
 generate_messages(
