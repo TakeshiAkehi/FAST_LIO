@@ -992,7 +992,7 @@ int main(int argc, char** argv)
             geoQuat.y = state_point.rot.coeffs()[1];
             geoQuat.z = state_point.rot.coeffs()[2];
             geoQuat.w = state_point.rot.coeffs()[3];
-
+            
             double t_update_end = omp_get_wtime();
 
             /******* Publish odometry *******/
@@ -1025,7 +1025,8 @@ int main(int argc, char** argv)
                 lio_status.tree_size_end = kdtree_size_end;
                 lio_status.delete_size = kdtree_delete_counter;
                 lio_status.added_point_size = add_point_size;
-                lio_status.status = "ok";
+                lio_status.status = (effect_feat_num < 1)? "No Effective Points":"ok";
+
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
             }
