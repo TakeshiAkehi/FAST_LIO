@@ -889,7 +889,7 @@ int main(int argc, char** argv)
     ros::Time t_previous = ros::Time::now();
     ros::Time now = ros::Time::now();
     ros::Duration dt(0);
-    float dt_estimated = 0, down_size_coef = 1;
+    float mergin_estimated = 0, down_size_coef = 1;
     double dt_th = 0.04;
     nh.param<double>("debug/dt_th", dt_th, 0.04);
     double ds_ratio = 1.1;
@@ -912,9 +912,10 @@ int main(int argc, char** argv)
             lio_status.header.stamp = now;
             lio_status.interval_time = (now - t_previous).toSec();
             lio_status.process_time = dt.toSec();
-            lio_status.dt = dt.toSec();
-            dt_estimated = mm.update(lio_status.dt);
-            lio_status.dt_estimated = dt_estimated;
+            float mergin = lio_status.interval_time - lio_status.process_time;
+            lio_status.mergin =mergin;
+            mergin_estimated = mm.update(mergin);
+            lio_status.mergin_estimated = mergin_estimated;
 
             lio_status.preprocess_time = preprocess_time;
             lio_status.scan_point_raw_size = Measures.lidar->size();
@@ -958,7 +959,7 @@ int main(int argc, char** argv)
             /*** downsample the feature points in a scan ***/
             downSizeFilterSurf.setInputCloud(feats_undistort);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
-            if(dt_estimated > dt_th){
+            if(mergin_estimated < dt_th){
                 if(down_size_coef < ds_init){
                     down_size_coef = ds_init;
                 }else if(down_size_coef>ds_max){

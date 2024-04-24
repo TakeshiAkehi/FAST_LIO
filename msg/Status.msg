@@ -1,8 +1,8 @@
 std_msgs/Header header
 float32 interval_time
 float32 process_time
-float32 dt
-float32 dt_estimated
+float32 mergin
+float32 mergin_estimated
 float32 total_time
 float32 preprocess_time
 float32 icp_time
