@@ -60,6 +60,7 @@
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
 #include <fast_lio/Status.h>
+#include "movmean.hpp"
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -111,6 +112,7 @@ deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
+PointCloudXYZI::Ptr feats_down_body_tmp(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI(100000, 1));
@@ -766,6 +768,23 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
     solve_time += omp_get_wtime() - solve_start_;
 }
 
+pcl::PointCloud<PointType>::Ptr limitate_size(pcl::PointCloud<PointType>::Ptr p,int size){
+    if(p->size() <= size){
+        return p;
+    }
+
+    float coef = p->size() / float(size);
+    pcl::PointCloud<PointType>::Ptr ret(new pcl::PointCloud<PointType>);
+    ret->reserve(p->size());
+    for(int i=0; i<p->size(); i++){
+        float fm = fmod(coef*i - i,coef);
+        if(fm<1){
+            ret->push_back(p->points[i]);
+        }
+    }
+    return ret;
+}
+
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "laserMapping");
@@ -866,20 +885,42 @@ int main(int argc, char** argv)
     signal(SIGINT, SigHandle);
     ros::Rate rate(5000);
     bool status = ros::ok();
+
     ros::Time t_previous = ros::Time::now();
+    ros::Time now = ros::Time::now();
+    ros::Duration dt(0);
+    float dt_estimated = 0, down_size_coef = 1;
+    double dt_th = 0.04;
+    nh.param<double>("debug/dt_th", dt_th, 0.04);
+    double ds_ratio = 1.1;
+    nh.param<double>("debug/ds_ratio", ds_ratio, 1.1);
+    double ds_init = 1.5;
+    nh.param<double>("debug/ds_init", ds_init, 1.5);
+    double ds_max = 3.0;
+    nh.param<double>("debug/ds_max", ds_max, 3.0);
+    double nmean = 10;
+    nh.param<double>("debug/nmean", nmean, 10);
+    Movmean mm(nmean);
     while (status)
     {
         if (flg_exit) break;
         fast_lio::Status lio_status;
-        lio_status.header.stamp = ros::Time::now();
-        lio_status.interval_time = (lio_status.header.stamp - t_previous).toSec();
-        lio_status.preprocess_time = preprocess_time;
         ros::spinOnce();
         if(sync_packages(Measures)) 
         {
+            now = ros::Time::now();
+            lio_status.header.stamp = now;
+            lio_status.interval_time = (now - t_previous).toSec();
+            lio_status.process_time = dt.toSec();
+            lio_status.dt = dt.toSec();
+            dt_estimated = mm.update(lio_status.dt);
+            lio_status.dt_estimated = dt_estimated;
+
+            lio_status.preprocess_time = preprocess_time;
             lio_status.scan_point_raw_size = Measures.lidar->size();
             if (flg_first_scan)
             {
+                dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 first_lidar_time = Measures.lidar_beg_time;
                 p_imu->first_lidar_time = first_lidar_time;
@@ -902,6 +943,7 @@ int main(int argc, char** argv)
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
                 lio_status.status = "No point. skip this scan";
+                dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
                 ROS_WARN("No point, skip this scan!\n");
@@ -915,7 +957,26 @@ int main(int argc, char** argv)
 
             /*** downsample the feature points in a scan ***/
             downSizeFilterSurf.setInputCloud(feats_undistort);
-            downSizeFilterSurf.filter(*feats_down_body);
+            downSizeFilterSurf.filter(*feats_down_body_tmp);
+            if(dt_estimated > dt_th){
+                if(down_size_coef < ds_init){
+                    down_size_coef = ds_init;
+                }else if(down_size_coef>ds_max){
+                    down_size_coef = ds_max;
+                } else{
+                    down_size_coef *= ds_ratio;
+                }
+                feats_down_body = limitate_size(feats_down_body_tmp,feats_down_body_tmp->width/down_size_coef);
+            }else{
+                if(down_size_coef>1){
+                    down_size_coef /= ds_ratio;
+                }else if(down_size_coef<1){
+                    down_size_coef = 1;
+                }
+                feats_down_body = feats_down_body_tmp;
+            }
+            lio_status.downsize_coef = down_size_coef;
+            
             t1 = omp_get_wtime();
             feats_down_size = feats_down_body->points.size();
             lio_status.scan_point_size = feats_down_size;
@@ -933,6 +994,7 @@ int main(int argc, char** argv)
                     ikdtree.Build(feats_down_world->points);
                 }
                 lio_status.status = "kdtree initialized";
+                dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
                 continue;
@@ -949,6 +1011,7 @@ int main(int argc, char** argv)
             if (feats_down_size < 5)
             {
                 lio_status.status = "No feats. skip this scan";
+                dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
                 ROS_WARN("No point, skip this scan!\n");
@@ -1027,6 +1090,7 @@ int main(int argc, char** argv)
                 lio_status.added_point_size = add_point_size;
                 lio_status.status = (lio_status.effect_feat_num < 1)? "No Effective Points":"ok";
 
+                dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
             }

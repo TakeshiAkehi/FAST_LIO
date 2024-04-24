@@ -1,5 +1,8 @@
 std_msgs/Header header
 float32 interval_time
+float32 process_time
+float32 dt
+float32 dt_estimated
 float32 total_time
 float32 preprocess_time
 float32 icp_time
@@ -16,6 +19,8 @@ int32 tree_size_start
 int32 tree_size_end
 int32 delete_size
 int32 added_point_size
+float32 downsize_coef
+
 
 float32 gyro_bias_x
 float32 gyro_bias_y
