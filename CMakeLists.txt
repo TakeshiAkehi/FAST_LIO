@@ -76,6 +76,10 @@ add_message_files(
   Status.msg
 )
 
+add_service_files(
+  FILES
+  Reset.srv
+)
 generate_messages(
  DEPENDENCIES
  geometry_msgs
@@ -86,6 +90,7 @@ catkin_package(
   DEPENDS EIGEN3 PCL
   INCLUDE_DIRS
 )
+
 
 add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
 target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})

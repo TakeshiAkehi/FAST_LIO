@@ -53,6 +53,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <std_msgs/Int8.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/Vector3.h>
@@ -60,6 +61,7 @@
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
 #include <fast_lio/Status.h>
+#include <fast_lio/Reset.h>
 #include "movmean.hpp"
 
 #define INIT_TIME           (0.1)
@@ -720,7 +722,7 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
         }
     }
 
-    if (effct_feat_num < 1)
+    if (effct_feat_num < 5)
     {
         ekfom_data.valid = false;
         ROS_WARN("No Effective Points! \n");
@@ -765,6 +767,7 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
         /*** Measuremnt: distance to the closest surface/corner ***/
         ekfom_data.h(i) = -norm_p.intensity;
     }
+
     solve_time += omp_get_wtime() - solve_start_;
 }
 
@@ -785,10 +788,37 @@ pcl::PointCloud<PointType>::Ptr limitate_size(pcl::PointCloud<PointType>::Ptr p,
     return ret;
 }
 
+bool reset(fast_lio::Reset::Request  &req,
+           fast_lio::Reset::Response &res)
+{
+    if(req.pose){
+        state_ikfom state = state_ikfom();
+        if(req.specific_pose){
+            state.pos(0) = req.x;
+            state.pos(1) = req.y;
+            state.pos(2) = req.z;
+            state.rot = SO3(req.qw,req.qx,req.qy,req.qz);
+            kf.reset(state);
+        }
+        else{
+            kf.reset();
+        }
+    }
+    if(req.map){
+        vector<BoxPointType> rmbox;
+        BoxPointType tmp_boxpoints = ikdtree.tree_range();
+        rmbox.push_back(tmp_boxpoints);
+        int delete_counter = ikdtree.Delete_Point_Boxes(rmbox);
+        int size_st = ikdtree.size();
+    } 
+    return true;
+}
+
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "laserMapping");
     ros::NodeHandle nh;
+    ros::NodeHandle pnh("~");
 
     nh.param<bool>("publish/path_en",path_en, true);
     nh.param<bool>("publish/scan_publish_en",scan_pub_en, true);
@@ -879,7 +909,9 @@ int main(int argc, char** argv)
             ("/Odometry", 100000);
     ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> 
             ("/path", 100000);
-    ros::Publisher pubStatus = nh.advertise<fast_lio::Status>("/status",1);
+    ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
+    ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
+    ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
 
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
@@ -900,6 +932,10 @@ int main(int argc, char** argv)
     nh.param<double>("debug/ds_max", ds_max, 3.0);
     double nmean = 10;
     nh.param<double>("debug/nmean", nmean, 10);
+    double q_min =1e-5;
+    nh.param<double>("debug/q_min", q_min , 1e-5);
+    double q_max = 1e-4/2;
+    nh.param<double>("debug/q_max", q_max , 1e-4/2);
     Movmean mm(nmean);
     while (status)
     {
@@ -947,6 +983,10 @@ int main(int argc, char** argv)
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
+
+                std_msgs::Int8 quality;
+                quality.data = -1;
+                pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
@@ -1015,6 +1055,10 @@ int main(int argc, char** argv)
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
+
+                std_msgs::Int8 quality;
+                quality.data = -1;
+                pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
@@ -1032,7 +1076,7 @@ int main(int argc, char** argv)
 
             if(map_pub_en) // If you need to see map point, change to "if(1)"
             {
-                PointVector ().swap(ikdtree.PCL_Storage);
+                PointVector().swap(ikdtree.PCL_Storage);
                 ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
                 featsFromMap->clear();
                 featsFromMap->points = ikdtree.PCL_Storage;
@@ -1077,6 +1121,20 @@ int main(int argc, char** argv)
             }
 
             /*** Debug variables ***/
+            {
+                auto P = kf.get_P();
+                double sx = P(0,0);
+                double sy = P(1,1);
+                double sz = P(2,2);
+                double smax = std::max({sx,sy,sz});
+                double s = smax - q_min;
+                double s_th = q_max - q_min;
+                double quality_f = s/s_th;
+                int quality_i = (quality_f<0)? 100 : (quality_f>1)? 0 : int(100-quality_f*100);
+                std_msgs::Int8 quality;
+                quality.data = quality_i;
+                pubQuality.publish(quality);
+            }
             if (1)
             {
                 kdtree_size_end = ikdtree.size();
@@ -1095,6 +1153,7 @@ int main(int argc, char** argv)
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
             }
+
         }
 
         status = ros::ok();

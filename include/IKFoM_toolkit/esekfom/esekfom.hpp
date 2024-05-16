@@ -145,6 +145,14 @@ public:
 	#endif
 	};
 
+	void reset(const state &x = state(), const cov &P = cov::Identity()){
+		x_ = x;
+		P_ = P;
+		x_.build_S2_state();
+		x_.build_SO3_state();
+		x_.build_vect_state();
+	};
+
 	//receive system-specific models and their differentions.
 	//for measurement as a manifold.
 	void init(processModel f_in, processMatrix1 f_x_in, processMatrix2 f_w_in, measurementModel h_in, measurementMatrix1 h_x_in, measurementMatrix2 h_v_in, int maximum_iteration, scalar_type limit_vector[n])
