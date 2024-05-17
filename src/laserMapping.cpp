@@ -842,6 +842,27 @@ bool toggle_blind(std_srvs::Trigger::Request  &req,
     return true;
 }
 
+bool toggle_high_dense(std_srvs::Trigger::Request  &req,
+           std_srvs::Trigger::Response &res)
+{
+    static high_dense = false;
+    float high = 0.1;
+    float low = 0.5;
+
+    high_dense = !high_dense;
+    float size = (high_dense)? high : low;
+
+    filter_size_surf_min = size;
+    downSizeFilterSurf.setLeafSize(size, size, size);
+    filter_size_map_min = size;
+    downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
+    ikdtree.set_downsample_param(filter_size_map_min);
+    res.success = true;
+    std::stringstream ss;
+    ss << "switched to blind mode : " << p_pre->blind_max_enabled << ", blind_dist = " << p_pre->blind_max;
+    res.message = ss.str(); 
+    return true;
+}
 
 int main(int argc, char** argv)
 {
