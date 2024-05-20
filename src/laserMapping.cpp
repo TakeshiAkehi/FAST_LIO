@@ -62,6 +62,7 @@
 #include <ikd-Tree/ikd_Tree.h>
 #include <fast_lio/Status.h>
 #include <fast_lio/Reset.h>
+#include <std_srvs/Trigger.h>
 #include "movmean.hpp"
 
 #define INIT_TIME           (0.1)
@@ -811,6 +812,22 @@ bool reset(fast_lio::Reset::Request  &req,
         int delete_counter = ikdtree.Delete_Point_Boxes(rmbox);
         int size_st = ikdtree.size();
     } 
+    res.ok = true;
+    return true;
+}
+
+ros::Publisher pubGlobalMap;
+bool publish_global_map(std_srvs::Trigger::Request  &req,
+           std_srvs::Trigger::Response &res)
+{
+
+    PointVector().swap(ikdtree.PCL_Storage);
+    ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
+    featsFromMap->clear();
+    featsFromMap->points = ikdtree.PCL_Storage;
+    publish_map(pubGlobalMap);
+    res.success = true;
+    res.message = "ok";
     return true;
 }
 
@@ -909,9 +926,11 @@ int main(int argc, char** argv)
             ("/Odometry", 100000);
     ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> 
             ("/path", 100000);
+    pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("global_map", 1);
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
     ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
+    ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
 
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
