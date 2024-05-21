@@ -831,6 +831,18 @@ bool publish_global_map(std_srvs::Trigger::Request  &req,
     return true;
 }
 
+bool toggle_blind(std_srvs::Trigger::Request  &req,
+           std_srvs::Trigger::Response &res)
+{
+    p_pre->blind_max_enabled = !p_pre->blind_max_enabled;
+    res.success = true;
+    std::stringstream ss;
+    ss << "switched to blind mode : " << p_pre->blind_max_enabled << ", blind_dist = " << p_pre->blind_max;
+    res.message = ss.str(); 
+    return true;
+}
+
+
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "laserMapping");
@@ -859,6 +871,7 @@ int main(int argc, char** argv)
     nh.param<double>("mapping/b_gyr_cov",b_gyr_cov,0.0001);
     nh.param<double>("mapping/b_acc_cov",b_acc_cov,0.0001);
     nh.param<double>("preprocess/blind", p_pre->blind, 0.01);
+    nh.param<double>("preprocess/blind_max", p_pre->blind_max, 999);
     nh.param<int>("preprocess/lidar_type", p_pre->lidar_type, AVIA);
     nh.param<int>("preprocess/scan_line", p_pre->N_SCANS, 16);
     nh.param<int>("preprocess/timestamp_unit", p_pre->time_unit, US);
@@ -931,6 +944,7 @@ int main(int argc, char** argv)
     ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
+    ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
 
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
@@ -1007,6 +1021,7 @@ int main(int argc, char** argv)
                 quality.data = -1;
                 pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
+                publish_odometry(pubOdomAftMapped);
                 continue;
             }
 
@@ -1079,6 +1094,7 @@ int main(int argc, char** argv)
                 quality.data = -1;
                 pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
+                publish_odometry(pubOdomAftMapped);
                 continue;
             }
             

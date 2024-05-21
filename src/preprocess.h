@@ -97,9 +97,10 @@ class Preprocess
   vector<orgtype> typess[128]; //maximum 128 line lidar
   float time_unit_scale;
   int lidar_type, point_filter_num, N_SCANS, SCAN_RATE, time_unit;
-  double blind;
+  double blind,blind_max;
   bool feature_enabled, given_offset_time;
   ros::Publisher pub_full, pub_surf, pub_corn;
+  bool blind_max_enabled;
     
 
   private:
