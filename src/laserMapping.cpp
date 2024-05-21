@@ -842,6 +842,27 @@ bool toggle_blind(std_srvs::Trigger::Request  &req,
     return true;
 }
 
+bool toggle_high_dense(std_srvs::Trigger::Request  &req,
+           std_srvs::Trigger::Response &res)
+{
+    static bool high_dense = false;
+    float high = 0.1;
+    float low = 0.5;
+
+    high_dense = !high_dense;
+    float size = (high_dense)? high : low;
+
+    filter_size_surf_min = size;
+    downSizeFilterSurf.setLeafSize(size, size, size);
+    filter_size_map_min = size;
+    downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
+    ikdtree.set_downsample_param(filter_size_map_min);
+    res.success = true;
+    std::stringstream ss;
+    ss << "switched to high dense mode : " << high_dense << ", high=" << high << ", low="<<low;
+    res.message = ss.str(); 
+    return true;
+}
 
 int main(int argc, char** argv)
 {
@@ -945,6 +966,7 @@ int main(int argc, char** argv)
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
     ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
+    ros::ServiceServer srvDense = pnh.advertiseService("high_dense", toggle_high_dense);
 
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
