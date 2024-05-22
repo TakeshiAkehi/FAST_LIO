@@ -845,7 +845,7 @@ bool toggle_blind(std_srvs::Trigger::Request  &req,
 bool toggle_high_dense(std_srvs::Trigger::Request  &req,
            std_srvs::Trigger::Response &res)
 {
-    static high_dense = false;
+    static bool high_dense = false;
     float high = 0.1;
     float low = 0.5;
 
@@ -859,7 +859,7 @@ bool toggle_high_dense(std_srvs::Trigger::Request  &req,
     ikdtree.set_downsample_param(filter_size_map_min);
     res.success = true;
     std::stringstream ss;
-    ss << "switched to blind mode : " << p_pre->blind_max_enabled << ", blind_dist = " << p_pre->blind_max;
+    ss << "switched to high dense mode : " << high_dense << ", high=" << high << ", low="<<low;
     res.message = ss.str(); 
     return true;
 }
@@ -966,6 +966,7 @@ int main(int argc, char** argv)
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
     ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
+    ros::ServiceServer srvDense = pnh.advertiseService("high_dense", toggle_high_dense);
 
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
@@ -975,22 +976,15 @@ int main(int argc, char** argv)
     ros::Time t_previous = ros::Time::now();
     ros::Time now = ros::Time::now();
     ros::Duration dt(0);
-    float mergin_estimated = 0, down_size_coef = 1;
-    double dt_th = 0.04;
-    nh.param<double>("debug/dt_th", dt_th, 0.04);
-    double ds_ratio = 1.1;
-    nh.param<double>("debug/ds_ratio", ds_ratio, 1.1);
-    double ds_init = 1.5;
-    nh.param<double>("debug/ds_init", ds_init, 1.5);
-    double ds_max = 3.0;
-    nh.param<double>("debug/ds_max", ds_max, 3.0);
-    double nmean = 10;
-    nh.param<double>("debug/nmean", nmean, 10);
+    float slack_time_ave = 0, down_size_coef = 100;
+    double dt_th = 20;
+    nh.param<double>("debug/dt_th", dt_th, 20);
     double q_min =1e-5;
     nh.param<double>("debug/q_min", q_min , 1e-5);
     double q_max = 1e-4/2;
     nh.param<double>("debug/q_max", q_max , 1e-4/2);
-    Movmean mm(nmean);
+    Movmean mm_slack_time(10);
+    Movmean mm_proc_time_ratio(30);
     while (status)
     {
         if (flg_exit) break;
@@ -1000,15 +994,14 @@ int main(int argc, char** argv)
         {
             now = ros::Time::now();
             lio_status.header.stamp = now;
-            lio_status.interval_time = (now - t_previous).toSec();
-            lio_status.process_time = dt.toSec();
-            float mergin = lio_status.interval_time - lio_status.process_time;
-            lio_status.mergin =mergin;
-            mergin_estimated = mm.update(mergin);
-            lio_status.mergin_estimated = mergin_estimated;
+            lio_status.interval_time = (now - t_previous).toSec()*1000;
+            lio_status.process_time = dt.toSec()*1000;
+            float slack_time = lio_status.interval_time - lio_status.process_time;
+            lio_status.slack_time =slack_time;
+            slack_time_ave = mm_slack_time.update(slack_time);
+            lio_status.slack_time_ave = slack_time_ave;
+            lio_status.scan_point_size_raw = Measures.lidar->size();
 
-            lio_status.preprocess_time = preprocess_time;
-            lio_status.scan_point_raw_size = Measures.lidar->size();
             if (flg_first_scan)
             {
                 dt = ros::Time::now() - now;
@@ -1054,22 +1047,22 @@ int main(int argc, char** argv)
             /*** downsample the feature points in a scan ***/
             downSizeFilterSurf.setInputCloud(feats_undistort);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
-            if(mergin_estimated < dt_th){
-                if(down_size_coef < ds_init){
-                    down_size_coef = ds_init;
-                }else if(down_size_coef>ds_max){
-                    down_size_coef = ds_max;
-                } else{
-                    down_size_coef *= ds_ratio;
+            feats_down_body = feats_down_body_tmp;
+            down_size_coef = 100;
+            if(mm_proc_time_ratio.available()){
+                float ms_per_kpts = mm_proc_time_ratio.get();
+                int max_th_pts = int((100 - dt_th) / ms_per_kpts *1000);
+                int excess_pts = feats_down_body_tmp->width - max_th_pts;
+                if(excess_pts > 0){
+                    int estimated_optim_pts = feats_down_body_tmp->width - excess_pts;
+                    down_size_coef = estimated_optim_pts / float(feats_down_body_tmp->width) * 100;
+                    feats_down_body = limitate_size(feats_down_body_tmp,estimated_optim_pts);
                 }
-                feats_down_body = limitate_size(feats_down_body_tmp,feats_down_body_tmp->width/down_size_coef);
-            }else{
-                if(down_size_coef>1){
-                    down_size_coef /= ds_ratio;
-                }else if(down_size_coef<1){
-                    down_size_coef = 1;
-                }
-                feats_down_body = feats_down_body_tmp;
+            }
+            {
+                float ms_per_kpts = mm_proc_time_ratio.get();
+                lio_status.predicted_process_time_raw = ms_per_kpts * feats_down_body_tmp->width /1000;
+                lio_status.predicted_process_time_ctrl = ms_per_kpts * feats_down_body->width /1000;
             }
             lio_status.downsize_coef = down_size_coef;
             
@@ -1097,7 +1090,6 @@ int main(int argc, char** argv)
             }
             int featsFromMapNum = ikdtree.validnum();
             kdtree_size_st = ikdtree.size();
-            lio_status.tree_size_start = kdtree_size_st;
             lio_status.feats_from_map_num = featsFromMapNum;
             lio_status.effect_feat_num = effct_feat_num;
             
@@ -1123,12 +1115,6 @@ int main(int argc, char** argv)
             feats_down_world->resize(feats_down_size);
 
             V3D ext_euler = SO3ToEuler(state_point.offset_R_L_I);
-            lio_status.gyro_bias_x = state_point.bg(0);
-            lio_status.gyro_bias_y = state_point.bg(1);
-            lio_status.gyro_bias_z = state_point.bg(2);
-            lio_status.acc_bias_x = state_point.ba(0);
-            lio_status.acc_bias_y = state_point.ba(1);
-            lio_status.acc_bias_z = state_point.ba(2);
 
             if(map_pub_en) // If you need to see map point, change to "if(1)"
             {
@@ -1194,20 +1180,21 @@ int main(int argc, char** argv)
             if (1)
             {
                 kdtree_size_end = ikdtree.size();
-                lio_status.total_time = t5-t0;
-                lio_status.icp_time = t_update_end-t_update_start;
-                lio_status.match_time = match_time;
-                lio_status.incremental_time = kdtree_incremental_time;
-                lio_status.delete_time = kdtree_delete_time;
-                lio_status.solve_time = solve_time+solve_H_time;
                 lio_status.tree_size_end = kdtree_size_end;
                 lio_status.delete_size = kdtree_delete_counter;
                 lio_status.added_point_size = add_point_size;
                 lio_status.status = (lio_status.effect_feat_num < 1)? "No Effective Points":"ok";
 
-                dt = ros::Time::now() - now;
+                ros::Time now2 = ros::Time::now();
+                dt = now2 - now;
                 t_previous  = lio_status.header.stamp;
+
+                float ms_per_kpts = dt.toNSec()/float(lio_status.scan_point_size)/1000.0;
+                float ms_per_kpts_ave = mm_proc_time_ratio.update(ms_per_kpts);
+                lio_status.process_time_per_kpts = ms_per_kpts;
+                lio_status.process_time_per_kpts_ave = ms_per_kpts_ave;
                 pubStatus.publish(lio_status);
+
             }
 
         }
