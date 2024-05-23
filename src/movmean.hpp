@@ -6,9 +6,13 @@ class Movmean{
         std::vector<float> arr;
         float sum;
         int i;
+        bool avail;
+
     public:
         Movmean(uint16_t siz);
         float update(float val);
+        float get();
+        bool available();
 };
 
 Movmean::Movmean(uint16_t siz){
@@ -16,6 +20,7 @@ Movmean::Movmean(uint16_t siz){
     this->siz = siz;
     this->sum = 0.0;
     this->i = 0;
+    this->avail = false;
 }
 
 float Movmean::update(float val){
@@ -31,6 +36,16 @@ float Movmean::update(float val){
     this->i++;
     if(this->i==this->siz){
         this->i = 0;
+        this->avail = true;
     }
     return ret;
+}
+
+float Movmean::get(){
+    float ret = this->sum / float(this->siz);
+    return ret;
+}
+
+bool Movmean::available(){
+    return this->avail;
 }
