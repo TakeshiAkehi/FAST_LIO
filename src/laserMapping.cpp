@@ -1032,20 +1032,24 @@ int main(int argc, char** argv)
             lio_status.upper_time = load_estimator.upper_ms;
 
             if(load_estimator.status.downscale_required){
-                ROS_INFO("downscale : upper=%f < raw=%f , lower=%f < expected=%f",
-                    load_estimator.lower_ms,
-                    load_estimator.status.predicted_process_time_raw,
-                    load_estimator.upper_ms,
-                    load_estimator.status.predicted_process_time_down);
-                grid_controller.downscale_grid_size();
+                bool downscaled = grid_controller.downscale_grid_size();
+                if(downscaled){
+                    ROS_INFO("downscale : upper=%f < raw=%f , lower=%f < expected=%f",
+                        load_estimator.lower_ms,
+                        load_estimator.status.predicted_process_time_raw,
+                        load_estimator.upper_ms,
+                        load_estimator.status.predicted_process_time_down);
+                }
             }
             if(load_estimator.status.upscale_required){
-                ROS_INFO("upscale : raw=%f < lower=%f, expected=%f < upper=%f",
-                    load_estimator.status.predicted_process_time_raw,
-                    load_estimator.upper_ms,
-                    load_estimator.status.predicted_process_time_up,
-                    load_estimator.lower_ms);
-                grid_controller.upscale_grid_size();
+                bool upscaled = grid_controller.upscale_grid_size();
+                if(upscaled){
+                    ROS_INFO("upscale : raw=%f < lower=%f, expected=%f < upper=%f",
+                        load_estimator.status.predicted_process_time_raw,
+                        load_estimator.upper_ms,
+                        load_estimator.status.predicted_process_time_up,
+                        load_estimator.lower_ms);
+                }
             }
             lio_status.grid_size = grid_controller.get_grid_size();
 

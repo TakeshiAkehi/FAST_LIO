@@ -131,6 +131,7 @@ bool gridController::_set_grid_size(float grid){
     this->last_update = ros::Time::now();
     this->grid_size = grid;
     ROS_INFO("set grid size : %f",grid);
+    return true;
 }
 
 bool gridController::_scale_grid_size(bool invert){
