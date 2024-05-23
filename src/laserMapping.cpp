@@ -64,6 +64,7 @@
 #include <fast_lio/Reset.h>
 #include <std_srvs/Trigger.h>
 #include "movmean.hpp"
+#include "load_controller.hpp"
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -976,15 +977,16 @@ int main(int argc, char** argv)
     ros::Time t_previous = ros::Time::now();
     ros::Time now = ros::Time::now();
     ros::Duration dt(0);
-    float slack_time_ave = 0, down_size_coef = 100;
-    double dt_th = 20;
-    nh.param<double>("debug/dt_th", dt_th, 20);
+    loadController load_controller(30);
+    nh.param<float>("debug/target_slack_ms", load_controller.target_slack_ms, 20.0);
+    nh.param<float>("debug/minimum_downsample_coef", load_controller.minimum_downsample_coef, 10.0);
+    nh.param<float>("debug/interval_ms", load_controller.interval_time_ms, 100.0);
+
+    Movmean mm_slack_time(10);
     double q_min =1e-5;
     nh.param<double>("debug/q_min", q_min , 1e-5);
     double q_max = 1e-4/2;
     nh.param<double>("debug/q_max", q_max , 1e-4/2);
-    Movmean mm_slack_time(10);
-    Movmean mm_proc_time_ratio(30);
     while (status)
     {
         if (flg_exit) break;
@@ -998,7 +1000,7 @@ int main(int argc, char** argv)
             lio_status.process_time = dt.toSec()*1000;
             float slack_time = lio_status.interval_time - lio_status.process_time;
             lio_status.slack_time =slack_time;
-            slack_time_ave = mm_slack_time.update(slack_time);
+            float slack_time_ave = mm_slack_time.update(slack_time);
             lio_status.slack_time_ave = slack_time_ave;
             lio_status.scan_point_size_raw = Measures.lidar->size();
 
@@ -1048,27 +1050,19 @@ int main(int argc, char** argv)
             downSizeFilterSurf.setInputCloud(feats_undistort);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
             feats_down_body = feats_down_body_tmp;
-            down_size_coef = 100;
-            if(mm_proc_time_ratio.available()){
-                float ms_per_kpts = mm_proc_time_ratio.get();
-                int max_th_pts = int((100 - dt_th) / ms_per_kpts *1000);
-                int excess_pts = feats_down_body_tmp->width - max_th_pts;
-                if(excess_pts > 0){
-                    int estimated_optim_pts = feats_down_body_tmp->width - excess_pts;
-                    down_size_coef = estimated_optim_pts / float(feats_down_body_tmp->width) * 100;
-                    feats_down_body = limitate_size(feats_down_body_tmp,estimated_optim_pts);
-                }
+            if(load_controller.predict(feats_down_body_tmp->width)){
+                feats_down_body = limitate_size(feats_down_body_tmp,load_controller.status.estimated_optim_pts);
             }
-            {
-                float ms_per_kpts = mm_proc_time_ratio.get();
-                lio_status.predicted_process_time_raw = ms_per_kpts * feats_down_body_tmp->width /1000;
-                lio_status.predicted_process_time_ctrl = ms_per_kpts * feats_down_body->width /1000;
-            }
-            lio_status.downsize_coef = down_size_coef;
+            lio_status.downsize_coef = load_controller.status.down_size_coef;
+            lio_status.predicted_process_time_ctrl = load_controller.status.predicted_process_time_ctrl;
+            lio_status.predicted_process_time_raw = load_controller.status.predicted_process_time_raw;
+            lio_status.process_time_per_kpts_ave = load_controller.status.ms_per_kpts_ave;
+            lio_status.downsize_limited = load_controller.status.down_size_limited;
+            lio_status.feat_point_size_raw = feats_down_body_tmp->width;
+            lio_status.feat_point_size = feats_down_body->width;
             
             t1 = omp_get_wtime();
             feats_down_size = feats_down_body->points.size();
-            lio_status.scan_point_size = feats_down_size;
             /*** initialize the map kdtree ***/
             if(ikdtree.Root_Node == nullptr)
             {
@@ -1189,10 +1183,7 @@ int main(int argc, char** argv)
                 dt = now2 - now;
                 t_previous  = lio_status.header.stamp;
 
-                float ms_per_kpts = dt.toNSec()/float(lio_status.scan_point_size)/1000.0;
-                float ms_per_kpts_ave = mm_proc_time_ratio.update(ms_per_kpts);
-                lio_status.process_time_per_kpts = ms_per_kpts;
-                lio_status.process_time_per_kpts_ave = ms_per_kpts_ave;
+                load_controller.update_ratio(feats_down_size,dt.toNSec());
                 pubStatus.publish(lio_status);
 
             }
