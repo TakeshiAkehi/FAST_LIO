@@ -3,14 +3,14 @@ float32 interval_time
 float32 process_time
 float32 slack_time
 float32 slack_time_ave
+float32 predicted_process_time_raw
+float32 predicted_process_time_ctrl
 
 float32 process_time_per_kpts_ave
 int32 scan_point_size_raw
 int32 feat_point_size_raw
 int32 feat_point_size
 int32 effect_feat_num
-float32 predicted_process_time_raw
-float32 predicted_process_time_ctrl
 float32 downsize_coef
 bool downsize_limited
 
