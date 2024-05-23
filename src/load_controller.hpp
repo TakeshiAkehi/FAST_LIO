@@ -56,9 +56,9 @@ void loadEstimator::update_processing_rate(int point_size, float dt_nsec){
 void loadEstimator::update_interval(float ms){
     bool ok = ((this->interval_time_ms - this->interval_range) < ms) && (ms < (this->interval_time_ms + this->interval_range));
     if(ok){
-        this->mm_interval.update(0.0);
-    }else{
         this->mm_interval.update(1.0);
+    }else{
+        this->mm_interval.update(0.0);
     }
 }
 
@@ -88,7 +88,7 @@ void loadEstimator::predict_processing_time(int point_size,float grid_size,float
     s->upscale_required = (s->predicted_process_time_raw < this->lower_ms) && (s->predicted_process_time_up < this->upper_ms);
     s->predicted_process_time_down = s->predicted_process_time_raw / (this->grid_coef_a*(grid_size + grid_step/2)+this->grid_coef_b);
     float in_time_interval_ratio = this->mm_interval.get();
-    s->downscale_required = (this->sanity_in_time_interval_ratio < in_time_interval_ratio)
+    s->downscale_required = (in_time_interval_ratio < this->sanity_in_time_interval_ratio)
                          || (this->upper_ms < s->predicted_process_time_raw) && (this->lower_ms < s->predicted_process_time_down);
     s->in_time_interval_ratio = in_time_interval_ratio;
 
