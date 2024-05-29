@@ -65,6 +65,7 @@
 #include <std_srvs/Trigger.h>
 #include "movmean.hpp"
 #include "load_controller.hpp"
+#include "quality.hpp"
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -981,12 +982,11 @@ int main(int argc, char** argv)
     nh.param<float>("debug/target_slack_ms", load_controller.target_slack_ms, 20.0);
     nh.param<float>("debug/minimum_downsample_coef", load_controller.minimum_downsample_coef, 10.0);
     nh.param<float>("debug/interval_ms", load_controller.interval_time_ms, 100.0);
-
+    lioQuality lio_quality;
+    nh.param<double>("debug/q_min", lio_quality.q_min , 1e-5);
+    nh.param<double>("debug/q_max", lio_quality.q_max , 1e-4/2);
     Movmean mm_slack_time(10);
-    double q_min =1e-5;
-    nh.param<double>("debug/q_min", q_min , 1e-5);
-    double q_max = 1e-4/2;
-    nh.param<double>("debug/q_max", q_max , 1e-4/2);
+
     while (status)
     {
         if (flg_exit) break;
@@ -1159,16 +1159,8 @@ int main(int argc, char** argv)
             /*** Debug variables ***/
             {
                 auto P = kf.get_P();
-                double sx = P(0,0);
-                double sy = P(1,1);
-                double sz = P(2,2);
-                double smax = std::max({sx,sy,sz});
-                double s = smax - q_min;
-                double s_th = q_max - q_min;
-                double quality_f = s/s_th;
-                int quality_i = (quality_f<0)? 100 : (quality_f>1)? 0 : int(100-quality_f*100);
                 std_msgs::Int8 quality;
-                quality.data = quality_i;
+                quality.data = lio_quality.calc(P(0,0),P(1,1),P(2,2));
                 pubQuality.publish(quality);
             }
             if (1)
