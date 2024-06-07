@@ -876,7 +876,7 @@ bool toggle_high_dense(std_srvs::Trigger::Request  &req,
 {
     static bool high_dense = false;
     float high = 0.1;
-    float low = 0.5;
+    float low = 0.3;
 
     high_dense = !high_dense;
     float size = (high_dense)? high : low;
