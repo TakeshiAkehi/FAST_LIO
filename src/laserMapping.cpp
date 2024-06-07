@@ -791,6 +791,20 @@ pcl::PointCloud<PointType>::Ptr limitate_size(pcl::PointCloud<PointType>::Ptr p,
     return ret;
 }
 
+pcl::PointCloud<PointType>::Ptr filter_by_intensity(pcl::PointCloud<PointType>::Ptr p,int intensity_th){
+    if(intensity_th <= 0){
+        return p;
+    }
+    pcl::PointCloud<PointType>::Ptr ret(new pcl::PointCloud<PointType>);
+    ret->reserve(p->size());
+    for(int i=0; i<p->size(); i++){
+        if(p->points[i].intensity > intensity_th){
+            ret->push_back(p->points[i]);
+        }
+    }
+    return ret;
+}
+
 bool reset(fast_lio::Reset::Request  &req,
            fast_lio::Reset::Response &res)
 {
@@ -840,6 +854,19 @@ bool toggle_blind(std_srvs::Trigger::Request  &req,
     res.success = true;
     std::stringstream ss;
     ss << "switched to blind mode : " << p_pre->blind_max_enabled << ", blind_dist = " << p_pre->blind_max;
+    res.message = ss.str(); 
+    return true;
+}
+
+bool intensity_filter_en = false;
+int min_intensity  = -1;
+bool toggle_intensity_blind(std_srvs::Trigger::Request  &req,
+           std_srvs::Trigger::Response &res)
+{
+    res.success = true;
+    std::stringstream ss;
+    intensity_filter_en = !intensity_filter_en;
+    ss << "switched to intensity filter mode : " << intensity_filter_en << ", th = " << min_intensity;
     res.message = ss.str(); 
     return true;
 }
@@ -970,6 +997,9 @@ int main(int argc, char** argv)
     ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
     ros::ServiceServer srvDense = pnh.advertiseService("high_dense", toggle_high_dense);
 
+    nh.param<int>("debug/min_intensity", min_intensity, -1);
+    ros::ServiceServer srvFilter = pnh.advertiseService("filter", toggle_intensity_blind);
+
 //------------------------------------------------------------------------------------------------------
     signal(SIGINT, SigHandle);
     ros::Rate rate(5000);
@@ -1047,7 +1077,13 @@ int main(int argc, char** argv)
             lasermap_fov_segment();
 
             /*** downsample the feature points in a scan ***/
-            downSizeFilterSurf.setInputCloud(feats_undistort);
+            PointCloudXYZI::Ptr feats_down_body_intensity_filtered(new PointCloudXYZI());
+            if(intensity_filter_en){
+                feats_down_body_intensity_filtered = filter_by_intensity(feats_undistort,min_intensity);
+            }else{
+                feats_down_body_intensity_filtered = feats_undistort;
+            }
+            downSizeFilterSurf.setInputCloud(feats_down_body_intensity_filtered);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
             feats_down_body = feats_down_body_tmp;
             if(load_controller.predict(feats_down_body_tmp->width)){
