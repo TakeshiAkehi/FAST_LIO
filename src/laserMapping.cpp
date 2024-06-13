@@ -874,12 +874,15 @@ bool toggle_intensity_blind(std_srvs::Trigger::Request  &req,
 bool toggle_high_dense(std_srvs::Trigger::Request  &req,
            std_srvs::Trigger::Response &res)
 {
-    static bool high_dense = false;
-    float high = 0.1;
-    float low = 0.3;
-
-    high_dense = !high_dense;
-    float size = (high_dense)? high : low;
+    static float size = 0.5;
+    static int dir = -1;
+    if(size < 0.15){
+        dir = 1;
+    }
+    if(size > 0.45){
+        dir = -1;
+    }
+    size += (dir*0.1);
 
     filter_size_surf_min = size;
     downSizeFilterSurf.setLeafSize(size, size, size);
@@ -888,7 +891,7 @@ bool toggle_high_dense(std_srvs::Trigger::Request  &req,
     ikdtree.set_downsample_param(filter_size_map_min);
     res.success = true;
     std::stringstream ss;
-    ss << "switched to high dense mode : " << high_dense << ", high=" << high << ", low="<<low;
+    ss << "switched to high dense mode : " << size;
     res.message = ss.str(); 
     return true;
 }
@@ -978,17 +981,17 @@ int main(int argc, char** argv)
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
     ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_registered", 100000);
+            ("cloud_registered", 100000);
     ros::Publisher pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_registered_body", 100000);
+            ("cloud_registered_body", 100000);
     ros::Publisher pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2>
-            ("/cloud_effected", 100000);
+            ("cloud_effected", 100000);
     ros::Publisher pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>
-            ("/Laser_map", 100000);
+            ("Laser_map", 100000);
     ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> 
-            ("/Odometry", 100000);
+            ("Odometry", 100000);
     ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> 
-            ("/path", 100000);
+            ("path", 100000);
     pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("global_map", 1);
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
     ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
@@ -1092,6 +1095,8 @@ int main(int argc, char** argv)
             lio_status.downsize_coef = load_controller.status.down_size_coef;
             lio_status.predicted_process_time_ctrl = load_controller.status.predicted_process_time_ctrl;
             lio_status.predicted_process_time_raw = load_controller.status.predicted_process_time_raw;
+            lio_status.predicted_process_time_up = load_controller.status.predicted_process_time_raw*1.5;
+            lio_status.predicted_process_time_down = load_controller.status.predicted_process_time_raw/1.5;
             lio_status.process_time_per_kpts_ave = load_controller.status.ms_per_kpts_ave;
             lio_status.downsize_limited = load_controller.status.down_size_limited;
             lio_status.feat_point_size_raw = feats_down_body_tmp->width;

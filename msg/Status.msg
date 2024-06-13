@@ -3,8 +3,10 @@ float32 interval_time
 float32 process_time
 float32 slack_time
 float32 slack_time_ave
-float32 predicted_process_time_raw
 float32 predicted_process_time_ctrl
+float32 predicted_process_time_raw
+float32 predicted_process_time_up
+float32 predicted_process_time_down
 
 float32 process_time_per_kpts_ave
 int32 scan_point_size_raw
