@@ -64,7 +64,7 @@
 #include <fast_lio/Reset.h>
 #include <std_srvs/Trigger.h>
 #include "movmean.hpp"
-#include "load_controller.hpp"
+#include "load_estimator.hpp"
 #include "quality.hpp"
 
 #define INIT_TIME           (0.1)
@@ -805,33 +805,6 @@ pcl::PointCloud<PointType>::Ptr filter_by_intensity(pcl::PointCloud<PointType>::
     return ret;
 }
 
-bool reset(fast_lio::Reset::Request  &req,
-           fast_lio::Reset::Response &res)
-{
-    if(req.pose){
-        state_ikfom state = state_ikfom();
-        if(req.specific_pose){
-            state.pos(0) = req.x;
-            state.pos(1) = req.y;
-            state.pos(2) = req.z;
-            state.rot = SO3(req.qw,req.qx,req.qy,req.qz);
-            kf.reset(state);
-        }
-        else{
-            kf.reset();
-        }
-    }
-    if(req.map){
-        vector<BoxPointType> rmbox;
-        BoxPointType tmp_boxpoints = ikdtree.tree_range();
-        rmbox.push_back(tmp_boxpoints);
-        int delete_counter = ikdtree.Delete_Point_Boxes(rmbox);
-        int size_st = ikdtree.size();
-    } 
-    res.ok = true;
-    return true;
-}
-
 ros::Publisher pubGlobalMap;
 bool publish_global_map(std_srvs::Trigger::Request  &req,
            std_srvs::Trigger::Response &res)
@@ -871,30 +844,44 @@ bool toggle_intensity_blind(std_srvs::Trigger::Request  &req,
     return true;
 }
 
-bool toggle_high_dense(std_srvs::Trigger::Request  &req,
-           std_srvs::Trigger::Response &res)
-{
-    static float size = 0.5;
-    static int dir = -1;
-    if(size < 0.15){
-        dir = 1;
-    }
-    if(size > 0.45){
-        dir = -1;
-    }
-    size += (dir*0.1);
 
+gridController grid_controller;
+void set_grid_size(float size){
     filter_size_surf_min = size;
     downSizeFilterSurf.setLeafSize(size, size, size);
     filter_size_map_min = size;
     downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);
     ikdtree.set_downsample_param(filter_size_map_min);
-    res.success = true;
-    std::stringstream ss;
-    ss << "switched to high dense mode : " << size;
-    res.message = ss.str(); 
+}
+
+bool reset(fast_lio::Reset::Request  &req,
+           fast_lio::Reset::Response &res)
+{
+    grid_controller.reset_grid();
+    if(req.pose){
+        state_ikfom state = state_ikfom();
+        if(req.specific_pose){
+            state.pos(0) = req.x;
+            state.pos(1) = req.y;
+            state.pos(2) = req.z;
+            state.rot = SO3(req.qw,req.qx,req.qy,req.qz);
+            kf.reset(state);
+        }
+        else{
+            kf.reset();
+        }
+    }
+    if(req.map){
+        vector<BoxPointType> rmbox;
+        BoxPointType tmp_boxpoints = ikdtree.tree_range();
+        rmbox.push_back(tmp_boxpoints);
+        int delete_counter = ikdtree.Delete_Point_Boxes(rmbox);
+        int size_st = ikdtree.size();
+    } 
+    res.ok = true;
     return true;
 }
+
 
 int main(int argc, char** argv)
 {
@@ -980,25 +967,19 @@ int main(int argc, char** argv)
         nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
-    ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>
-            ("cloud_registered", 100000);
-    ros::Publisher pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2>
-            ("cloud_registered_body", 100000);
-    ros::Publisher pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2>
-            ("cloud_effected", 100000);
-    ros::Publisher pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>
-            ("Laser_map", 100000);
-    ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> 
-            ("Odometry", 100000);
-    ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> 
-            ("path", 100000);
+    ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2> ("cloud_registered", 100000);
+    ros::Publisher pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2> ("cloud_registered_body", 100000);
+    ros::Publisher pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2> ("cloud_effected", 100000);
+    ros::Publisher pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2> ("Laser_map", 100000);
+    ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("Odometry", 100000);
+    ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> ("path", 100000);
     pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("global_map", 1);
+
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
     ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
     ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
-    ros::ServiceServer srvDense = pnh.advertiseService("high_dense", toggle_high_dense);
 
     nh.param<int>("debug/min_intensity", min_intensity, -1);
     ros::ServiceServer srvFilter = pnh.advertiseService("filter", toggle_intensity_blind);
@@ -1011,10 +992,21 @@ int main(int argc, char** argv)
     ros::Time t_previous = ros::Time::now();
     ros::Time now = ros::Time::now();
     ros::Duration dt(0);
-    loadController load_controller(30);
-    nh.param<float>("debug/target_slack_ms", load_controller.target_slack_ms, 20.0);
-    nh.param<float>("debug/minimum_downsample_coef", load_controller.minimum_downsample_coef, 10.0);
-    nh.param<float>("debug/interval_ms", load_controller.interval_time_ms, 100.0);
+    loadEstimator load_estimator(30);
+    nh.param<float>("load/interval_ms", load_estimator.interval_time_ms, 0.0);
+    nh.param<float>("load/target_slack_ms", load_estimator.target_slack_ms, 0);
+    nh.param<float>("load/minimum_downsample_coef", load_estimator.minimum_downsample_coef, 0.0);
+    nh.param<float>("load/grid_coef_a", load_estimator.grid_coef_a, 0.0);
+    nh.param<float>("load/grid_coef_b", load_estimator.grid_coef_b, 0.0);
+    nh.param<float>("load/lower_ms", load_estimator.lower_ms, 0.0);
+    nh.param<float>("load/upper_ms", load_estimator.upper_ms, 0.0);
+
+    nh.param<float>("load/grid_step", grid_controller.grid_step, 0.0);
+    nh.param<float>("load/grid_max", grid_controller.grid_max, 0.0);
+    nh.param<float>("load/grid_min", grid_controller.grid_min, 0.0);
+    nh.param<float>("load/grid_cool_time", grid_controller.cool_time, 0.0);
+    grid_controller.register_grid_func(set_grid_size);
+
     lioQuality lio_quality;
     nh.param<double>("debug/q_min", lio_quality.q_min , 1e-5);
     nh.param<double>("debug/q_max", lio_quality.q_max , 1e-4/2);
@@ -1036,6 +1028,26 @@ int main(int argc, char** argv)
             float slack_time_ave = mm_slack_time.update(slack_time);
             lio_status.slack_time_ave = slack_time_ave;
             lio_status.scan_point_size_raw = Measures.lidar->size();
+            lio_status.lower_time = load_estimator.lower_ms;
+            lio_status.upper_time = load_estimator.upper_ms;
+
+            if(load_estimator.status.downscale_required){
+                ROS_INFO("downscale : upper=%f < raw=%f , lower=%f < expected=%f",
+                    load_estimator.lower_ms,
+                    load_estimator.status.predicted_process_time_raw,
+                    load_estimator.upper_ms,
+                    load_estimator.status.predicted_process_time_down);
+                grid_controller.downscale_grid_size();
+            }
+            if(load_estimator.status.upscale_required){
+                ROS_INFO("upscale : raw=%f < lower=%f, expected=%f < upper=%f",
+                    load_estimator.status.predicted_process_time_raw,
+                    load_estimator.upper_ms,
+                    load_estimator.status.predicted_process_time_up,
+                    load_estimator.lower_ms);
+                grid_controller.upscale_grid_size();
+            }
+            lio_status.grid_size = grid_controller.get_grid_size();
 
             if (flg_first_scan)
             {
@@ -1088,17 +1100,19 @@ int main(int argc, char** argv)
             }
             downSizeFilterSurf.setInputCloud(feats_down_body_intensity_filtered);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
-            feats_down_body = feats_down_body_tmp;
-            if(load_controller.predict(feats_down_body_tmp->width)){
-                feats_down_body = limitate_size(feats_down_body_tmp,load_controller.status.estimated_optim_pts);
+            load_estimator.predict_processing_time(feats_down_body_tmp->width,grid_controller.get_grid_size(),grid_controller.grid_step);
+            if(load_estimator.status.predict_success && load_estimator.status.downsize_required){
+                feats_down_body = limitate_size(feats_down_body_tmp,load_estimator.status.estimated_optim_pts);
+            }else{
+                feats_down_body = feats_down_body_tmp;
             }
-            lio_status.downsize_coef = load_controller.status.down_size_coef;
-            lio_status.predicted_process_time_ctrl = load_controller.status.predicted_process_time_ctrl;
-            lio_status.predicted_process_time_raw = load_controller.status.predicted_process_time_raw;
-            lio_status.predicted_process_time_up = load_controller.status.predicted_process_time_raw*1.5;
-            lio_status.predicted_process_time_down = load_controller.status.predicted_process_time_raw/1.5;
-            lio_status.process_time_per_kpts_ave = load_controller.status.ms_per_kpts_ave;
-            lio_status.downsize_limited = load_controller.status.down_size_limited;
+            lio_status.downsize_coef = load_estimator.status.down_size_coef;
+            lio_status.predicted_process_time_ctrl = load_estimator.status.predicted_process_time_ctrl;
+            lio_status.predicted_process_time_raw = load_estimator.status.predicted_process_time_raw;
+            lio_status.predicted_process_time_up = load_estimator.status.predicted_process_time_up;
+            lio_status.predicted_process_time_down = load_estimator.status.predicted_process_time_down;
+            lio_status.process_time_per_kpts_ave = load_estimator.status.ms_per_kpts_ave;
+            lio_status.downsize_limited = load_estimator.status.down_size_limited;
             lio_status.feat_point_size_raw = feats_down_body_tmp->width;
             lio_status.feat_point_size = feats_down_body->width;
             
@@ -1204,7 +1218,7 @@ int main(int argc, char** argv)
                 quality.data = lio_quality.calc(P(0,0),P(1,1),P(2,2));
                 pubQuality.publish(quality);
             }
-            if (1)
+
             {
                 kdtree_size_end = ikdtree.size();
                 lio_status.tree_size_end = kdtree_size_end;
@@ -1216,7 +1230,7 @@ int main(int argc, char** argv)
                 dt = now2 - now;
                 t_previous  = lio_status.header.stamp;
 
-                load_controller.update_ratio(feats_down_size,dt.toNSec());
+                load_estimator.update_processing_rate(feats_down_size,dt.toNSec());
                 pubStatus.publish(lio_status);
 
             }
