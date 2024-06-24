@@ -16,6 +16,7 @@ struct loadStatus{
     float down_size_coef=-1;
     bool down_size_limited=false;
 
+    float in_time_interval_ratio;
     bool upscale_required=false;
     bool downscale_required=false;
 };
@@ -24,12 +25,15 @@ class loadEstimator{
     private:
         Movmean mm_proc_time_ratio;
         Movmean mm_proc_time_raw;
+        Movmean mm_interval;
     public:
         loadEstimator(uint16_t nmean=30)
         :mm_proc_time_ratio(nmean),
-         mm_proc_time_raw(nmean){}
+         mm_proc_time_raw(nmean),
+         mm_interval(nmean){}
         void update_processing_rate(int point_size, float dt_nsec);
         void predict_processing_time(int point_size,float grid_size,float grid_step);
+        void update_interval(float ms);
 
         loadStatus status;
         float target_slack_ms=0;
@@ -39,12 +43,25 @@ class loadEstimator{
         float grid_coef_b = 0;
         float lower_ms = 0;
         float upper_ms = 0;
+
+        float interval_range = 0;
+        float sanity_in_time_interval_ratio = 0;
 };
 
 void loadEstimator::update_processing_rate(int point_size, float dt_nsec){
     float ms_per_kpts = (dt_nsec/1000000)/(float(point_size)/1000);
     this->mm_proc_time_ratio.update(ms_per_kpts);
 }
+
+void loadEstimator::update_interval(float ms){
+    bool ok = ((this->interval_time_ms - this->interval_range) < ms) && (ms < (this->interval_time_ms + this->interval_range));
+    if(ok){
+        this->mm_interval.update(0.0);
+    }else{
+        this->mm_interval.update(1.0);
+    }
+}
+
 
 void loadEstimator::predict_processing_time(int point_size,float grid_size,float grid_step){
     loadStatus *s = &this->status;
@@ -70,7 +87,10 @@ void loadEstimator::predict_processing_time(int point_size,float grid_size,float
     s->predicted_process_time_up = s->predicted_process_time_raw * (this->grid_coef_a*(grid_size - grid_step/2)+this->grid_coef_b);
     s->upscale_required = (s->predicted_process_time_raw < this->lower_ms) && (s->predicted_process_time_up < this->upper_ms);
     s->predicted_process_time_down = s->predicted_process_time_raw / (this->grid_coef_a*(grid_size + grid_step/2)+this->grid_coef_b);
-    s->downscale_required = (this->upper_ms < s->predicted_process_time_raw) && (this->lower_ms < s->predicted_process_time_down);
+    float in_time_interval_ratio = this->mm_interval.get();
+    s->downscale_required = (this->sanity_in_time_interval_ratio < in_time_interval_ratio)
+                         || (this->upper_ms < s->predicted_process_time_raw) && (this->lower_ms < s->predicted_process_time_down);
+    s->in_time_interval_ratio = in_time_interval_ratio;
 
     if(excess_pts <= 0){
         s->predicted_process_time_ctrl = s->predicted_process_time_raw;

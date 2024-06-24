@@ -10,6 +10,7 @@ float32 predicted_process_time_down
 float32 lower_time
 float32 upper_time
 float32 latency
+float32 in_time_interval_ratio
 
 float32 process_time_per_kpts_ave
 int32 scan_point_size_raw

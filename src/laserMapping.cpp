@@ -977,8 +977,8 @@ int main(int argc, char** argv)
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
-    ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
 
+    ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
     nh.param<int>("debug/min_intensity", min_intensity, -1);
     ros::ServiceServer srvFilter = pnh.advertiseService("filter", toggle_intensity_blind);
 
@@ -1002,6 +1002,9 @@ int main(int argc, char** argv)
     nh.param<float>("load/grid_coef_b", load_estimator.grid_coef_b, 0.0);
     nh.param<float>("load/lower_ms", load_estimator.lower_ms, 0.0);
     nh.param<float>("load/upper_ms", load_estimator.upper_ms, 0.0);
+    nh.param<float>("load/interval_range", load_estimator.interval_range, 0.0);
+    nh.param<float>("load/sanity_in_time_interval_ratio", load_estimator.sanity_in_time_interval_ratio, 0.0);
+
     nh.param<float>("load/grid_step", grid_controller.grid_step, 0.0);
     nh.param<float>("load/grid_max", grid_controller.grid_max, 0.0);
     nh.param<float>("load/grid_min", grid_controller.grid_min, 0.0);
@@ -1022,10 +1025,12 @@ int main(int argc, char** argv)
         {
             now = ros::Time::now();
             lio_status.header.stamp = now;
-            lio_status.interval_time = (now - t_previous).toSec()*1000;
+            float interval_time = (now - t_previous).toSec()*1000;
+            lio_status.interval_time = interval_time;
             lio_status.scan_point_size_raw = Measures.lidar->size();
             lio_status.lower_time = load_estimator.lower_ms;
             lio_status.upper_time = load_estimator.upper_ms;
+            load_estimator.update_interval(interval_time);
 
             if(load_estimator.status.downscale_required){
                 bool downscaled = grid_controller.downscale_grid_size();
@@ -1109,6 +1114,7 @@ int main(int argc, char** argv)
             lio_status.predicted_process_time_down = load_estimator.status.predicted_process_time_down;
             lio_status.process_time_per_kpts_ave = load_estimator.status.ms_per_kpts_ave;
             lio_status.downsize_limited = load_estimator.status.down_size_limited;
+            lio_status.in_time_interval_ratio = load_estimator.status.in_time_interval_ratio;
             lio_status.feat_point_size_raw = feats_down_body_tmp->width;
             lio_status.feat_point_size = feats_down_body->width;
             
