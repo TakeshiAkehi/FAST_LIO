@@ -932,7 +932,7 @@ int main(int argc, char** argv)
     path.header.frame_id = frame_world;
 
     /*** variables definition ***/
-    int effect_feat_num = 0, frame_num = 0;
+    int  frame_num = 0;
     double deltaT, deltaR, aver_time_consu = 0, aver_time_icp = 0, aver_time_match = 0, aver_time_incre = 0, aver_time_solve = 0, aver_time_const_H_time = 0;
     bool flg_EKF_converged, EKF_stop_flg = 0;
     
@@ -1009,6 +1009,7 @@ int main(int argc, char** argv)
     if(grid_ctrl_en){
         grid_controller.register_grid_func(set_grid_size);
     }
+    float upper_ms = load_estimator.upper_ms;
 
     Movmean mm_slack_time(10);
 
@@ -1022,11 +1023,6 @@ int main(int argc, char** argv)
             now = ros::Time::now();
             lio_status.header.stamp = now;
             lio_status.interval_time = (now - t_previous).toSec()*1000;
-            lio_status.process_time = dt.toSec()*1000;
-            float slack_time = lio_status.interval_time - lio_status.process_time;
-            lio_status.slack_time =slack_time;
-            float slack_time_ave = mm_slack_time.update(slack_time);
-            lio_status.slack_time_ave = slack_time_ave;
             lio_status.scan_point_size_raw = Measures.lidar->size();
             lio_status.lower_time = load_estimator.lower_ms;
             lio_status.upper_time = load_estimator.upper_ms;
@@ -1081,7 +1077,6 @@ int main(int argc, char** argv)
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
-
                 ROS_WARN("No point, skip this scan!\n");
                 publish_odometry(pubOdomAftMapped);
                 continue;
@@ -1138,10 +1133,6 @@ int main(int argc, char** argv)
                 pubStatus.publish(lio_status);
                 continue;
             }
-            int featsFromMapNum = ikdtree.validnum();
-            kdtree_size_st = ikdtree.size();
-            lio_status.feats_from_map_num = featsFromMapNum;
-            lio_status.effect_feat_num = effct_feat_num;
             
             // cout<<"[ mapping ]: In num: "<<feats_undistort->points.size()<<" downsamp "<<feats_down_size<<" Map num: "<<featsFromMapNum<<"effect num:"<<effct_feat_num<<endl;
 
@@ -1152,9 +1143,8 @@ int main(int argc, char** argv)
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
-
                 ROS_WARN("No point, skip this scan!\n");
-                publish_odometry(pubOdomAftMapped);
+                // publish_odometry(pubOdomAftMapped);
                 continue;
             }
             
@@ -1191,15 +1181,27 @@ int main(int argc, char** argv)
             geoQuat.w = state_point.rot.coeffs()[3];
             
             double t_update_end = omp_get_wtime();
-
-            /******* Publish odometry *******/
-            publish_odometry(pubOdomAftMapped);
+            int featsFromMapNum = ikdtree.validnum();
+            kdtree_size_st = ikdtree.size();
+            lio_status.feats_from_map_num = featsFromMapNum;
+            lio_status.effect_feat_num = effct_feat_num;
+            if(effct_feat_num < 5){
+                lio_status.status = "No Effective Points";
+                dt = ros::Time::now() - now;
+                t_previous  = lio_status.header.stamp;
+                pubStatus.publish(lio_status);
+                continue;
+            }
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();
             map_incremental();
             t5 = omp_get_wtime();
-            
+            kdtree_size_end = ikdtree.size();
+            lio_status.tree_size_end = kdtree_size_end;
+            lio_status.delete_size = kdtree_delete_counter;
+            lio_status.added_point_size = add_point_size;
+
             /******* Publish points *******/
             if (path_en)                         publish_path(pubPath);
             if (scan_pub_en || pcd_save_en)      publish_frame_world(pubLaserCloudFull);
@@ -1209,46 +1211,29 @@ int main(int argc, char** argv)
                 publish_map(pubLaserCloudMap);
             }
 
-            /*** Debug variables ***/
-            {
-                auto P = kf.get_P();
+            ros::Time now2 = ros::Time::now();
+            dt = now2 - now;
+            lio_status.process_time = dt.toSec()*1000;
+            float slack_time = lio_status.interval_time - dt.toSec()*1000;
+            lio_status.slack_time =slack_time;
+            float slack_time_ave = mm_slack_time.update(slack_time);
+            lio_status.slack_time_ave = slack_time_ave;
+            if(dt < ros::Duration(upper_ms/1000)){
+                lio_status.status = "ok";
+                publish_odometry(pubOdomAftMapped);
+            }else{
+                lio_status.status = "not calculated in time";
             }
 
-            {
-                kdtree_size_end = ikdtree.size();
-                lio_status.tree_size_end = kdtree_size_end;
-                lio_status.delete_size = kdtree_delete_counter;
-                lio_status.added_point_size = add_point_size;
-                lio_status.status = (lio_status.effect_feat_num < 1)? "No Effective Points":"ok";
-
-                ros::Time now2 = ros::Time::now();
-                dt = now2 - now;
-                t_previous  = lio_status.header.stamp;
-                lio_status.latency = (now2.toSec() - lidar_end_time)*1000;
-
-                load_estimator.update_processing_rate(feats_down_size,dt.toNSec());
-                pubStatus.publish(lio_status);
-
-            }
-
+            t_previous  = lio_status.header.stamp;
+            lio_status.latency = (now2.toSec() - lidar_end_time)*1000;
+            load_estimator.update_processing_rate(feats_down_size,dt.toNSec());
+            pubStatus.publish(lio_status);
         }
 
         status = ros::ok();
         rate.sleep();
     }
-
-    /**************** save map ****************/
-    /* 1. make sure you have enough memories
-    /* 2. pcd save will largely influence the real-time performences **/
-    if (pcl_wait_save->size() > 0 && pcd_save_en)
-    {
-        string file_name = string("scans.pcd");
-        string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-        pcl::PCDWriter pcd_writer;
-        cout << "current scan saved to /PCD/" << file_name<<endl;
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-    }
-
 
     return 0;
 }
