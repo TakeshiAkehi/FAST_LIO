@@ -63,9 +63,8 @@
 #include <fast_lio/Status.h>
 #include <fast_lio/Reset.h>
 #include <std_srvs/Trigger.h>
-#include "movmean.hpp"
-#include "load_estimator.hpp"
-#include "quality.hpp"
+#include "smoothing.hpp"
+#include "load_controller.hpp"
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -976,7 +975,6 @@ int main(int argc, char** argv)
     pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("global_map", 1);
 
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
-    ros::Publisher pubQuality = pnh.advertise<std_msgs::Int8>("quality",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
     ros::ServiceServer srvBlind = pnh.advertiseService("blind", toggle_blind);
@@ -993,6 +991,10 @@ int main(int argc, char** argv)
     ros::Time now = ros::Time::now();
     ros::Duration dt(0);
     loadEstimator load_estimator(30);
+    bool feat_ctrl_en = false;
+    bool grid_ctrl_en = false;
+    nh.param<bool>("load/feat_ctrl_en", feat_ctrl_en, false);
+    nh.param<bool>("load/grid_ctrl_en", grid_ctrl_en, false);
     nh.param<float>("load/interval_ms", load_estimator.interval_time_ms, 0.0);
     nh.param<float>("load/target_slack_ms", load_estimator.target_slack_ms, 0);
     nh.param<float>("load/minimum_downsample_coef", load_estimator.minimum_downsample_coef, 0.0);
@@ -1000,16 +1002,14 @@ int main(int argc, char** argv)
     nh.param<float>("load/grid_coef_b", load_estimator.grid_coef_b, 0.0);
     nh.param<float>("load/lower_ms", load_estimator.lower_ms, 0.0);
     nh.param<float>("load/upper_ms", load_estimator.upper_ms, 0.0);
-
     nh.param<float>("load/grid_step", grid_controller.grid_step, 0.0);
     nh.param<float>("load/grid_max", grid_controller.grid_max, 0.0);
     nh.param<float>("load/grid_min", grid_controller.grid_min, 0.0);
     nh.param<float>("load/grid_cool_time", grid_controller.cool_time, 0.0);
-    grid_controller.register_grid_func(set_grid_size);
+    if(grid_ctrl_en){
+        grid_controller.register_grid_func(set_grid_size);
+    }
 
-    lioQuality lio_quality;
-    nh.param<double>("debug/q_min", lio_quality.q_min , 1e-5);
-    nh.param<double>("debug/q_max", lio_quality.q_max , 1e-4/2);
     Movmean mm_slack_time(10);
 
     while (status)
@@ -1082,9 +1082,6 @@ int main(int argc, char** argv)
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
 
-                std_msgs::Int8 quality;
-                quality.data = -1;
-                pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
                 publish_odometry(pubOdomAftMapped);
                 continue;
@@ -1105,7 +1102,7 @@ int main(int argc, char** argv)
             downSizeFilterSurf.setInputCloud(feats_down_body_intensity_filtered);
             downSizeFilterSurf.filter(*feats_down_body_tmp);
             load_estimator.predict_processing_time(feats_down_body_tmp->width,grid_controller.get_grid_size(),grid_controller.grid_step);
-            if(load_estimator.status.predict_success && load_estimator.status.downsize_required){
+            if(feat_ctrl_en && load_estimator.status.predict_success && load_estimator.status.downsize_required){
                 feats_down_body = limitate_size(feats_down_body_tmp,load_estimator.status.estimated_optim_pts);
             }else{
                 feats_down_body = feats_down_body_tmp;
@@ -1156,9 +1153,6 @@ int main(int argc, char** argv)
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
 
-                std_msgs::Int8 quality;
-                quality.data = -1;
-                pubQuality.publish(quality);
                 ROS_WARN("No point, skip this scan!\n");
                 publish_odometry(pubOdomAftMapped);
                 continue;
@@ -1218,9 +1212,6 @@ int main(int argc, char** argv)
             /*** Debug variables ***/
             {
                 auto P = kf.get_P();
-                std_msgs::Int8 quality;
-                quality.data = lio_quality.calc(P(0,0),P(1,1),P(2,2));
-                pubQuality.publish(quality);
             }
 
             {
@@ -1233,6 +1224,7 @@ int main(int argc, char** argv)
                 ros::Time now2 = ros::Time::now();
                 dt = now2 - now;
                 t_previous  = lio_status.header.stamp;
+                lio_status.latency = (now2.toSec() - lidar_end_time)*1000;
 
                 load_estimator.update_processing_rate(feats_down_size,dt.toNSec());
                 pubStatus.publish(lio_status);

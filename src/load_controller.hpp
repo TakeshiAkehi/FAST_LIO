@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "movmean.hpp"
+#include "smoothing.hpp"
 #include <ros/ros.h>
 
 struct loadStatus{
@@ -135,7 +135,8 @@ bool gridController::_set_grid_size(float grid){
 }
 
 bool gridController::_scale_grid_size(bool invert){
-    float new_grid_size = (invert)? (this->grid_size + grid_step) : (this->grid_size - grid_step);
+    float new_grid_size_f = (invert)? (this->grid_size + grid_step) : (this->grid_size - grid_step);
+    float new_grid_size = roundf(new_grid_size_f*10.0)/10.0;
     if(grid_max < new_grid_size){
         // ROS_WARN("grid max %f < new grid %f (current %f)",grid_max,new_grid_size,grid_size);
         return false;
