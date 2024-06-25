@@ -144,7 +144,7 @@ void gridController::register_grid_func(std::function<void(float)> grid_set_func
 
 bool gridController::_set_grid_size(float grid){
     if(!this->enabled){
-        ROS_ERROR("grid func not registered");
+        // ROS_WARN("grid func not registered");
         return false;
     }
     this->_grid_set_func(grid);
