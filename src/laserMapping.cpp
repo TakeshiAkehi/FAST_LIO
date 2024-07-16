@@ -1184,6 +1184,15 @@ int main(int argc, char** argv)
             geoQuat.y = state_point.rot.coeffs()[1];
             geoQuat.z = state_point.rot.coeffs()[2];
             geoQuat.w = state_point.rot.coeffs()[3];
+
+            /*** add the feature points to map kdtree ***/
+            t3 = omp_get_wtime();
+            map_incremental();
+            t5 = omp_get_wtime();
+            kdtree_size_end = ikdtree.size();
+            lio_status.tree_size_end = kdtree_size_end;
+            lio_status.delete_size = kdtree_delete_counter;
+            lio_status.added_point_size = add_point_size;
             
             double t_update_end = omp_get_wtime();
             int featsFromMapNum = ikdtree.validnum();
@@ -1198,14 +1207,6 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            /*** add the feature points to map kdtree ***/
-            t3 = omp_get_wtime();
-            map_incremental();
-            t5 = omp_get_wtime();
-            kdtree_size_end = ikdtree.size();
-            lio_status.tree_size_end = kdtree_size_end;
-            lio_status.delete_size = kdtree_delete_counter;
-            lio_status.added_point_size = add_point_size;
 
             /******* Publish points *******/
             if (path_en)                         publish_path(pubPath);
