@@ -963,16 +963,15 @@ int main(int argc, char** argv)
 
     /*** ROS subscribe initialization ***/
     ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
-        nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
-        nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
-    ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
-    ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2> ("cloud_registered", 100000);
-    ros::Publisher pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2> ("cloud_registered_body", 100000);
-    ros::Publisher pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2> ("cloud_effected", 100000);
-    ros::Publisher pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2> ("Laser_map", 100000);
-    ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("Odometry", 100000);
-    ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> ("path", 100000);
-    pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("global_map", 1);
+        pnh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
+        pnh.subscribe(lid_topic, 200000, standard_pcl_cbk);
+    ros::Subscriber sub_imu = pnh.subscribe(imu_topic, 200000, imu_cbk);
+    ros::Publisher pubLaserCloudFull = pnh.advertise<sensor_msgs::PointCloud2> ("cloud", 100000);
+    ros::Publisher pubLaserCloudFull_body = pnh.advertise<sensor_msgs::PointCloud2> ("debug/cloud_body", 100000);
+    ros::Publisher pubLaserCloudEffect = pnh.advertise<sensor_msgs::PointCloud2> ("debug/cloud_effected", 100000);
+    ros::Publisher pubOdomAftMapped = pnh.advertise<nav_msgs::Odometry> ("odometry", 100000);
+    ros::Publisher pubPath          = pnh.advertise<nav_msgs::Path> ("path", 100000);
+    pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("map", 1);
 
     ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
@@ -1214,7 +1213,7 @@ int main(int argc, char** argv)
             if (scan_pub_en && scan_body_pub_en) publish_frame_body(pubLaserCloudFull_body);
             if (map_pub_en){
                 publish_effect_world(pubLaserCloudEffect);
-                publish_map(pubLaserCloudMap);
+                publish_map(pubGlobalMap);
             }
 
             ros::Time now2 = ros::Time::now();
