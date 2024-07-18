@@ -60,7 +60,7 @@
 #include <livox_ros_driver/CustomMsg.h>
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
-#include <fast_lio/Status.h>
+#include <custom_message/LioStatus.h>
 #include <fast_lio/Reset.h>
 #include <std_srvs/Trigger.h>
 #include "smoothing.hpp"
@@ -973,7 +973,7 @@ int main(int argc, char** argv)
     ros::Publisher pubPath          = pnh.advertise<nav_msgs::Path> ("path", 100000);
     pubGlobalMap = pnh.advertise<sensor_msgs::PointCloud2>("map", 1);
 
-    ros::Publisher pubStatus = pnh.advertise<fast_lio::Status>("status",1);
+    ros::Publisher pubStatus = pnh.advertise<custom_message::LioStatus>("status",1);
     ros::ServiceServer srvReset = pnh.advertiseService("reset", reset);
     ros::ServiceServer srvMap = pnh.advertiseService("map", publish_global_map);
 
@@ -1018,7 +1018,7 @@ int main(int argc, char** argv)
     while (status)
     {
         if (flg_exit) break;
-        fast_lio::Status lio_status;
+        custom_message::LioStatus lio_status;
         ros::spinOnce();
         if(sync_packages(Measures)) 
         {
@@ -1026,7 +1026,6 @@ int main(int argc, char** argv)
             lio_status.header.stamp = now;
             float interval_time = (now - t_previous).toSec()*1000;
             lio_status.interval_time = interval_time;
-            lio_status.scan_point_size_raw = Measures.lidar->size();
             lio_status.lower_time = load_estimator.lower_ms;
             lio_status.upper_time = load_estimator.upper_ms;
             load_estimator.update_interval(interval_time);
@@ -1046,9 +1045,9 @@ int main(int argc, char** argv)
                 if(upscaled){
                     ROS_INFO("upscale : raw=%f < lower=%f, expected=%f < upper=%f",
                         load_estimator.status.predicted_process_time_raw,
-                        load_estimator.upper_ms,
+                        load_estimator.lower_ms,
                         load_estimator.status.predicted_process_time_up,
-                        load_estimator.lower_ms);
+                        load_estimator.upper_ms);
                 }
             }
             lio_status.grid_size = grid_controller.get_grid_size();
@@ -1077,11 +1076,11 @@ int main(int argc, char** argv)
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
-                lio_status.status = "No point. skip this scan";
+                lio_status.status = -1;
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
-                ROS_WARN("No point, skip this scan!\n");
+                ROS_WARN("no point");
                 publish_odometry(pubOdomAftMapped);
                 continue;
             }
@@ -1112,10 +1111,7 @@ int main(int argc, char** argv)
             lio_status.predicted_process_time_up = load_estimator.status.predicted_process_time_up;
             lio_status.predicted_process_time_down = load_estimator.status.predicted_process_time_down;
             lio_status.process_time_per_kpts_ave = load_estimator.status.ms_per_kpts_ave;
-            lio_status.downsize_limited = load_estimator.status.down_size_limited;
             lio_status.in_time_interval_ratio = load_estimator.status.in_time_interval_ratio;
-            lio_status.feat_point_size_raw = feats_down_body_tmp->width;
-            lio_status.feat_point_size = feats_down_body->width;
             
             t1 = omp_get_wtime();
             feats_down_size = feats_down_body->points.size();
@@ -1132,7 +1128,7 @@ int main(int argc, char** argv)
                     }
                     ikdtree.Build(feats_down_world->points);
                 }
-                lio_status.status = "kdtree initialized";
+                lio_status.status = 2;
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
@@ -1144,11 +1140,11 @@ int main(int argc, char** argv)
             /*** ICP and iterated Kalman filter update ***/
             if (feats_down_size < 5)
             {
-                lio_status.status = "No feats. skip this scan";
+                lio_status.status = -2;
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
-                ROS_WARN("No point, skip this scan!\n");
+                ROS_WARN("no point");
                 // publish_odometry(pubOdomAftMapped);
                 continue;
             }
@@ -1190,17 +1186,12 @@ int main(int argc, char** argv)
             map_incremental();
             t5 = omp_get_wtime();
             kdtree_size_end = ikdtree.size();
-            lio_status.tree_size_end = kdtree_size_end;
-            lio_status.delete_size = kdtree_delete_counter;
-            lio_status.added_point_size = add_point_size;
             
             double t_update_end = omp_get_wtime();
             int featsFromMapNum = ikdtree.validnum();
             kdtree_size_st = ikdtree.size();
-            lio_status.feats_from_map_num = featsFromMapNum;
-            lio_status.effect_feat_num = effct_feat_num;
             if(effct_feat_num < 5){
-                lio_status.status = "No Effective Points";
+                lio_status.status = -3;
                 dt = ros::Time::now() - now;
                 t_previous  = lio_status.header.stamp;
                 pubStatus.publish(lio_status);
@@ -1225,10 +1216,10 @@ int main(int argc, char** argv)
             float slack_time_ave = mm_slack_time.update(slack_time);
             lio_status.slack_time_ave = slack_time_ave;
             if(dt < ros::Duration(upper_ms/1000)){
-                lio_status.status = "ok";
+                lio_status.status = 1;
                 publish_odometry(pubOdomAftMapped);
             }else{
-                lio_status.status = "not calculated in time";
+                lio_status.status = 3;
             }
 
             t_previous  = lio_status.header.stamp;

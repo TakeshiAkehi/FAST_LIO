@@ -58,6 +58,7 @@ find_package(catkin REQUIRED COMPONENTS
   eigen_conversions
   genmsg
   message_generation
+  custom_message
 )
 
 find_package(Eigen3 REQUIRED)
@@ -75,7 +76,6 @@ include_directories(
 add_message_files(
   FILES
   Pose6D.msg
-  Status.msg
 )
 
 add_service_files(
@@ -97,7 +97,7 @@ catkin_package(
 add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
 target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
 target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
-add_dependencies(fastlio_mapping fast_lio_generate_messages_cpp)
+add_dependencies(fastlio_mapping fast_lio_generate_messages_cpp ${catkin_EXPORTED_TARGETS})
 
 
 install(
